@@ -44,3 +44,64 @@ You don’t have to ever use `eject`. The curated feature set is suitable for sm
 You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
 
 To learn React, check out the [React documentation](https://reactjs.org/).
+
+## API Service Layer
+
+This project includes a small, production-ready service layer for calling a backend API (e.g. `GET http://localhost:8000/users`).
+
+### Environment Variables
+
+Configure the API base URL via a `.env` file (restart dev server after changes):
+
+```
+REACT_APP_API_BASE_URL=http://localhost:8000
+```
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `src/services/httpClient.ts` | Fetch wrapper (timeout, retries, base URL) |
+| `src/services/userService.ts` | Domain-specific user operations + caching |
+| `src/components/UserList.tsx` | Example component consuming the service |
+| `src/types/User.ts` | Shared types & helper interfaces |
+
+### Usage Example
+
+```tsx
+import { getUsers } from './services/userService';
+
+async function demo() {
+	const { data, error } = await getUsers();
+	if (error) {
+		console.error('Failed to load users', error);
+	} else {
+		console.log('Users:', data);
+	}
+}
+```
+
+Or use the `<UserList />` component already added to `App`.
+
+### Production Considerations
+
+1. Centralized base URL & headers.
+2. Graceful error normalization with status codes.
+3. AbortController-based timeouts (default 10s).
+4. Limited exponential backoff retry for transient errors (5xx / 429).
+5. Simple in-memory caching with TTL (1 minute) to reduce duplicate calls.
+6. Fully typed responses & errors.
+7. Unit tests for the user service (`userService.test.ts`).
+8. Easily extensible for POST/PUT/DELETE.
+
+### Extending
+
+Add another endpoint:
+
+```ts
+// In a new service file or existing one
+export async function getProjects() {
+	return httpJson<Project[]>('/projects', { method: 'GET' });
+}
+```
+

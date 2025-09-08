@@ -45,19 +45,24 @@
 // export default App;
 
 // Excercise 2
-import React from 'react';
+import React, { useState } from 'react';
 import './App.css';
+import UserList from './components/UserList';
+import ItemList from './components/ItemList';
+import GraphPage from './components/GraphPage';
+import { Tabs } from 'antd';
 
-interface Props { 
-  country: string;
-}
+const itemsTabs = [
+  { key: 'items', label: 'Items', children: <ItemList /> },
+  { key: 'users', label: 'Users', children: <UserList /> },
+  { key: 'graph', label: 'Graph', children: <GraphPage /> }
+];
 
-const App: React.FC<Props> = (props) => {
+const App: React.FC = () => {
+  const [activeKey, setActiveKey] = useState('graph');
   return (
-    <div className="App">
-      <ul>
-        <li>Country: {props.country}</li>
-      </ul>
+    <div className="App" style={{ padding: 24 }}>
+      <Tabs activeKey={activeKey} onChange={setActiveKey} items={itemsTabs} destroyInactiveTabPane />
     </div>
   );
 };
