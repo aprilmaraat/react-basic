@@ -48,21 +48,45 @@
 import React, { useState } from 'react';
 import './App.css';
 import UserList from './components/UserList';
-import ItemList from './components/ItemList';
+import TransactionList from './components/TransactionList';
+import InventoryList from './components/InventoryList';
+import InventoryGraph from './components/InventoryGraph';
 import GraphPage from './components/GraphPage';
-import { Tabs } from 'antd';
+import CategoryList from './components/CategoryList';
+import WeightList from './components/WeightList';
+import { Tabs, Card } from 'antd';
 
-const itemsTabs = [
-  { key: 'items', label: 'Items', children: <ItemList /> },
+
+// Admin nested tabs (data entry pages)
+const adminTabs = [
+  { key: 'inventory', label: 'Inventory', children: <InventoryList /> },
+  { key: 'transactions', label: 'Transactions', children: <TransactionList /> },
   { key: 'users', label: 'Users', children: <UserList /> },
-  { key: 'graph', label: 'Graph', children: <GraphPage /> }
+  { key: 'categories', label: 'Categories', children: <CategoryList /> },
+  { key: 'weights', label: 'Weights', children: <WeightList /> },
+];
+
+// Top-level tabs: Graph, Inventory Graph, Admin (with nested tabs)
+const topLevelTabs = [
+  { key: 'graph', label: 'Graph', children: <GraphPage /> },
+  { key: 'inventory-graph', label: 'Inventory Tracking', children: <InventoryGraph /> },
+  { key: 'admin', label: 'Admin', children: (
+    <Card size="small" bodyStyle={{ padding: 0 }}>
+      <Tabs
+        tabPosition="top"
+        items={adminTabs}
+        destroyInactiveTabPane
+      />
+    </Card>
+  ) },
 ];
 
 const App: React.FC = () => {
+  // Default to Monthly Graph top-level
   const [activeKey, setActiveKey] = useState('graph');
   return (
     <div className="App" style={{ padding: 24 }}>
-      <Tabs activeKey={activeKey} onChange={setActiveKey} items={itemsTabs} destroyInactiveTabPane />
+      <Tabs activeKey={activeKey} onChange={setActiveKey} items={topLevelTabs} destroyInactiveTabPane />
     </div>
   );
 };

@@ -1,107 +1,198 @@
-# Getting Started with Create React App
+<br />
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+# React Basic App (Users / Transactions / Analytics)
 
-## Available Scripts
+TypeScript React application (CRA) showcasing:
 
-In the project directory, you can run:
+* API service layer with retry, timeout, error normalization.
+* Data tables (Users, Transactions) with sorting, filtering, search (Transactions), refresh, caching.
+* Monthly Expense Analytics page with per‑day aggregation and optional column chart.
+* Lightweight domain normalization for inconsistent backend fields.
+* Unit tests (example: `userService.test.ts`).
 
-### `npm start`
+## Quick Start
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
-
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
-
-### `npm test`
-
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
-
-### `npm run build`
-
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
-
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
-
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
-
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
-
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-## API Service Layer
-
-This project includes a small, production-ready service layer for calling a backend API (e.g. `GET http://localhost:8000/users`).
-
-### Environment Variables
-
-Configure the API base URL via a `.env` file (restart dev server after changes):
-
-```
-REACT_APP_API_BASE_URL=http://localhost:8000
+```bash
+npm install
+npm start
 ```
 
-### Files
+Runs at http://localhost:3000.
 
-| File | Purpose |
-|------|---------|
-| `src/services/httpClient.ts` | Fetch wrapper (timeout, retries, base URL) |
-| `src/services/userService.ts` | Domain-specific user operations + caching |
-| `src/components/UserList.tsx` | Example component consuming the service |
-| `src/types/User.ts` | Shared types & helper interfaces |
+## Environment (.env)
 
-### Usage Example
-
-```tsx
-import { getUsers } from './services/userService';
-
-async function demo() {
-	const { data, error } = await getUsers();
-	if (error) {
-		console.error('Failed to load users', error);
-	} else {
-		console.log('Users:', data);
-	}
-}
+```
+<!-- REACT_APP_API_BASE_URL=http://localhost:8000 -->
+REACT_APP_API_BASE_URL=http://127.0.0.1:8000/
 ```
 
-Or use the `<UserList />` component already added to `App`.
+Restart `npm start` after changes.
 
-### Production Considerations
+## Expected Backend Endpoints
 
-1. Centralized base URL & headers.
-2. Graceful error normalization with status codes.
-3. AbortController-based timeouts (default 10s).
-4. Limited exponential backoff retry for transient errors (5xx / 429).
-5. Simple in-memory caching with TTL (1 minute) to reduce duplicate calls.
-6. Fully typed responses & errors.
-7. Unit tests for the user service (`userService.test.ts`).
-8. Easily extensible for POST/PUT/DELETE.
+| Endpoint | Example | Notes |
+|----------|---------|-------|
+| `GET /users` | `/users` | Returns array of users. Cached in memory (60s TTL). |
+| `GET /transactions` | `/transactions?user_id=1&search=foo` | Supports `user_id`, `search`. Normalizes legacy field names. |
+| `POST /transactions` | `/transactions` | Creates a transaction (body JSON). |
+| `PUT /transactions/{id}` | `/transactions/123` | Updates transaction fields. |
+| `DELETE /transactions/{id}` | `/transactions/123` | Deletes a transaction. |
+| `POST /users` | `/users` | Creates a user. |
+| `PUT /users/{id}` | `/users/5` | Updates a user. |
+| `DELETE /users/{id}` | `/users/5` | Deletes a user. |
 
-### Extending
+Transaction fields tolerated: `title` (or legacy `name`), `createdAt|created_at|created|date`, `ownerName|owner_name|userName|user_name|user.full_name|user.username` (legacy), optional `transaction_type|item_type` -> `type`.
 
-Add another endpoint:
+## Project Structure (key parts)
+
+```
+src/
+	components/
+		UserList.tsx      # Users table with manual refresh & sorting
+		TransactionList.tsx      # Transactions table with user filter + debounced search
+		GraphPage.tsx      # Monthly graph visualization (column chart)
+		ItemList.tsx       # Inventory items CRUD
+		CategoryList.tsx   # Category CRUD (dynamic metadata)
+		WeightList.tsx     # Weight CRUD (dynamic metadata)
+	services/
+		httpClient.ts     # Fetch wrapper (timeout, retries, base URL)
+		userService.ts    # Users API + in-memory caching
+		transactionService.ts    # Transactions API + query building + normalization
+	types/              # Shared TypeScript models
+```
+
+## Optional: Ant Design
+
+UI components come from `antd`. Theme customization can be added later via `craco` or CSS variables if needed.
+
+## Services & Error Handling
+
+`httpClient.ts` features:
+
+1. Base URL from `REACT_APP_API_BASE_URL` (trailing slash trimmed).
+2. JSON parsing with graceful fallback if response body is empty / non‑JSON.
+3. AbortController timeout (default 10s).
+4. Limited retry (GET only) on network / 5xx / 429 with exponential backoff.
+5. Normalized `ApiError` shape (`status`, optional `payload`).
+
+`userService` caches users for 60 seconds. Call `getUsers(true)` to force refresh or `clearUsersCache()` to invalidate programmatically.
+
+`transactionService` builds query strings and normalizes heterogeneous backend responses into consistent `Transaction` objects. It also exposes `createTransaction`, `updateTransaction`, and `deleteTransaction` for mutations.
+
+`userService` now includes `createUser`, `updateUser`, and `deleteUser`. Mutations automatically invalidate the in-memory users cache.
+
+## Usage Examples
+
+Programmatic:
 
 ```ts
-// In a new service file or existing one
-export async function getProjects() {
-	return httpJson<Project[]>('/projects', { method: 'GET' });
+import { getUsers, createUser } from './services/userService';
+import { getTransactions, createTransaction, updateTransaction, deleteTransaction } from './services/transactionService';
+
+async function load() {
+	const usersResult = await getUsers();
+	const transactionsResult = await getTransactions({ userId: 1, search: 'test' });
+
+	// Create a new user
+	await createUser({ full_name: 'Bob Smith', email: 'bob@example.com' });
+
+	// Create a transaction
+	const { data: created } = await createTransaction({ title: 'Office Supplies', amount_per_unit: 15, quantity: 3, transaction_type: 'expense', description: 'Paper & pens' });
+
+	// Update a transaction
+	if (created) await updateTransaction(created.id, { amount_per_unit: 17, quantity: 3 });
+
+	// Delete a transaction
+	if (created) await deleteTransaction(created.id);
+	console.log(usersResult.data, transactionsResult.data);
 }
 ```
+
+In JSX:
+
+```tsx
+<UserList />
+<TransactionList refreshIntervalMs={30000} />
+<GraphPage />
+```
+
+## Testing
+
+Run tests:
+
+```bash
+npm test
+```
+
+Example: `userService.test.ts` mocks `fetch` and verifies success + error handling & cache bypass.
+
+## Available Scripts (CRA)
+
+| Script | Purpose |
+|--------|---------|
+| `npm start` | Dev server with fast refresh |
+| `npm test` | Jest watch mode |
+| `npm run build` | Production build (minified, hashed) |
+| `npm run eject` | Copy build config (irreversible) |
+
+## Extending Quickly
+
+Add a new endpoint:
+
+```ts
+// projectService.ts
+import { httpJson } from './httpClient';
+export async function getProjects() { return httpJson<any[]>('/projects', { method: 'GET' }); }
+```
+
+Then consume similarly to existing services.
+
+## Future Ideas
+
+* Persist filters in URL (query params) for shareable links.
+* Add mutation endpoints (create/update/delete) with optimistic UI.
+* Introduce React Query / SWR if caching & synchronization complexity grows.
+* Form validation and item creation modal.
+* Dark mode theme tokens for Ant Design.
+
+---
+Generated from a baseline CRA project and evolved with a lightweight, typed service & analytics layer.
+
+## Tab Layout
+
+Top-level tabs:
+
+1. Monthly Expense Analytics – Aggregated metrics & optional chart.
+2. Monthly Graph – Visual daily totals chart.
+3. Admin – Contains nested tabs for data entry & management.
+
+Admin nested tabs:
+
+* Inventory (ItemList)
+* Transactions (TransactionList)
+* Users (UserList)
+* Categories (CategoryList)
+* Weights (WeightList)
+
+Each nested tab supports CRUD (where relevant) and manual refresh. Categories & weights are loaded from the API (`/categories`, `/weights`) with seed fallbacks.
+
+## Inventory Metadata (Categories & Weights)
+
+The initial static arrays `CATEGORY_OPTIONS` and `WEIGHT_OPTIONS` (in `src/data/inventorySeeds.ts`) now act only as a fallback. The app dynamically loads:
+
+* `GET /categories` via `categoryService.getCategories()`
+* `GET /weights` via `weightService.getWeights()`
+
+`ItemList` replaces static filter & form option sources with the fetched names. If either request fails, the component silently retains the seed arrays so the UI is still usable offline.
+
+To extend:
+
+```ts
+// Add new category
+await createCategory({ name: 'Juice', description: 'Fruit juices' });
+// Add new weight
+await createWeight({ name: '750ml', description: 'Glass bottle size' });
+```
+
+Consider removing or minimizing the seeds file once the API becomes authoritative. Keeping it allows zero‑API demos and local testing.
 

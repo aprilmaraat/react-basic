@@ -1,0 +1,117 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import { Table, Typography, Alert, Spin, Space, Button, Modal, Form, Input, Popconfirm, message } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import { getCategories, createCategory, updateCategory, deleteCategory } from '../services/categoryService';
+import { Category } from '../types/Category';
+
+interface Props { refreshIntervalMs?: number }
+
+const { Title } = Typography;
+
+const CategoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
+  const [categories, setCategories] = useState<Category[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<Category | null>(null);
+  const [form] = Form.useForm();
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data, error } = await getCategories();
+    if (error) setError(error.message); else { setCategories(data || []); setError(null); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (refreshIntervalMs) {
+      const id = setInterval(load, refreshIntervalMs);
+      return () => clearInterval(id);
+    }
+  }, [refreshIntervalMs, load]);
+
+  const columns: ColumnsType<Category> = [
+    { title: 'Name', dataIndex: 'name', key: 'name', sorter: (a,b) => a.name.localeCompare(b.name) },
+    { title: 'Description', dataIndex: 'description', key: 'description', render: (v: any) => v || '-' },
+    {
+      title: 'Actions', key: 'actions', width: 160, render: (_: any, record) => (
+        <Space>
+          <Button size="small" onClick={() => onEdit(record)}>Edit</Button>
+          <Popconfirm title="Delete category?" okButtonProps={{ danger: true }} onConfirm={() => onDelete(record)}>
+            <Button size="small" danger>Delete</Button>
+          </Popconfirm>
+        </Space>
+      )
+    }
+  ];
+
+  const onCreate = () => { setEditing(null); form.resetFields(); setModalOpen(true); };
+  const onEdit = (c: Category) => { setEditing(c); form.setFieldsValue({ name: c.name, description: c.description || '' }); setModalOpen(true); };
+
+  const onDelete = async (c: Category) => {
+    const { error } = await deleteCategory(c.id);
+    if (error) message.error(`Delete failed: ${error.message}`); else { message.success('Category deleted'); load(); }
+  };
+
+  const handleModalOk = async () => {
+    try {
+      const values = await form.validateFields();
+      if (editing) {
+        const { error } = await updateCategory(editing.id, { name: values.name, description: values.description || null });
+        if (error) return message.error(`Update failed: ${error.message}`);
+        message.success('Category updated');
+      } else {
+        const { error } = await createCategory({ name: values.name, description: values.description || null });
+        if (error) return message.error(`Create failed: ${error.message}`);
+        message.success('Category created');
+      }
+      setModalOpen(false);
+      load();
+    } catch (e) { /* validation handled */ }
+  };
+
+  const handleModalCancel = () => setModalOpen(false);
+
+  if (!categories && loading) return <Spin tip="Loading categories..." />;
+
+  return (
+    <div>
+      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }}>
+        <Title level={3} style={{ margin: 0 }}>Categories</Title>
+        <Space>
+          <Button onClick={() => load()} disabled={loading} loading={loading}>Refresh</Button>
+          <Button type="primary" onClick={onCreate}>New Category</Button>
+        </Space>
+      </Space>
+      {error && <Alert type="error" showIcon message="Failed to load categories" description={<Space><span>{error}</span><Button size="small" onClick={() => load()}>Retry</Button></Space>} style={{ marginBottom: 12 }} />}
+      <Table<Category>
+        size="middle"
+        bordered
+        rowKey={r => r.id.toString()}
+        columns={columns}
+        dataSource={categories || []}
+        loading={loading}
+        pagination={{ pageSize: 10, showSizeChanger: true }}
+        locale={{ emptyText: loading ? 'Loading...' : 'No categories found' }}
+      />
+      <Modal title={editing ? 'Edit Category' : 'Create Category'} open={modalOpen} onOk={handleModalOk} onCancel={handleModalCancel} okText={editing ? 'Save' : 'Create'} destroyOnClose>
+        <Form form={form} layout="vertical" initialValues={{ name: '', description: '' }}>
+          <Form.Item
+            name="name"
+            label="Name"
+            rules={[
+              { required: true, message: 'Name required' },
+              { validator: (_, v) => (typeof v === 'string' && v.trim().length === 0 ? Promise.reject(new Error('Name required')) : Promise.resolve()) },
+            ]}
+          >
+            <Input autoComplete="off" allowClear placeholder="Category name" />
+          </Form.Item>
+          <Form.Item name="description" label="Description"> <Input.TextArea rows={3} allowClear placeholder="Optional description" /> </Form.Item>
+        </Form>
+      </Modal>
+    </div>
+  );
+};
+
+export default CategoryList;

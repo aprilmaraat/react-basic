@@ -1,72 +1,62 @@
 import { httpJson } from './httpClient';
-import { Item, ApiResult, ApiError } from '../types/Item';
+import { Inventory, InventoryCreatePayload, InventoryUpdatePayload, ApiResult, ApiError } from '../types/Item';
 
-export interface GetItemsParams {
-  userId?: string | number | null;
-  search?: string;
-  signal?: AbortSignal;
-}
+export interface GetInventoryParams { skip?: number; limit?: number; signal?: AbortSignal }
 
-// Build query string – assumes backend accepts `user_id` & `search` as query params.
-// Adjust the param keys here if the FastAPI docs differ.
-function buildQuery(params: GetItemsParams): string {
+function buildQuery(params: GetInventoryParams): string {
   const q = new URLSearchParams();
-  if (params.userId !== undefined && params.userId !== null && `${params.userId}`.length > 0) {
-    q.set('user_id', String(params.userId));
-  }
-  if (params.search) {
-    q.set('search', params.search);
-  }
+  if (params.skip != null) q.set('skip', String(params.skip));
+  if (params.limit != null) q.set('limit', String(params.limit));
   const qs = q.toString();
-  return '/items' + (qs ? `?${qs}` : '');
+  return '/inventory' + (qs ? `?${qs}` : '');
 }
 
-// Normalize raw item objects coming from API to our Item interface.
-function normalizeItem(raw: any): Item {
-  if (!raw) {
-    return raw as Item;
-  }
-  // Support legacy 'name' field -> 'title'
-  const title = raw.title ?? raw.name ?? '';
-  // Normalize createdAt from several possible backend keys
-  const createdAt = raw.createdAt
-    ?? raw.created_at
-    ?? raw.created
-    ?? raw.date
-    ?? undefined;
-  // Derive ownerName from multiple possible shapes:
-  //  - raw.ownerName (preferred direct field)
-  //  - raw.owner_name (snake case)
-  //  - raw.user?.username / raw.user?.name (expanded relationship)
-  //  - raw.userName (camel) or raw.user_name
-  const ownerName = raw.ownerName
-    ?? raw.owner_name
-    ?? raw.userName
-    ?? raw.user_name
-    ?? raw.user?.username
-    ?? raw.user?.name
-    ?? undefined;
-
-  // Attempt to derive a canonical `type` (expense/income/etc.) from multiple possible backend keys
-  const type = raw.item_type || undefined;
-
+function normalizeInventory(raw: any): Inventory {
   return {
-    ...raw,
-    title,
-  createdAt,
-    ownerName,
-  type,
-  } as Item;
+    id: raw.id,
+    name: raw.name,
+    quantity: raw.quantity ?? 0,
+    category_id: raw.category_id,
+    weight_id: raw.weight_id,
+    // Backend may or may not return enriched names; normalize to camelCase if present
+    categoryName: raw.category_name ?? raw.categoryName,
+    weightName: raw.weight_name ?? raw.weightName,
+  } as Inventory;
 }
 
-export async function getItems(params: GetItemsParams = {}): Promise<ApiResult<Item[]>> {
+export async function getInventory(params: GetInventoryParams = {}): Promise<ApiResult<Inventory[]>> {
   try {
     const path = buildQuery(params);
     const raw = await httpJson<any[]>(path, { method: 'GET', signal: params.signal });
-    const data = Array.isArray(raw) ? raw.map(normalizeItem) : [];
+    const data = Array.isArray(raw) ? raw.map(normalizeInventory) : [];
     return { data };
-  } catch (e: any) {
-    const error: ApiError = e;
-    return { error };
-  }
+  } catch (e: any) { const error: ApiError = e; return { error }; }
+}
+
+export async function getInventoryById(id: number): Promise<ApiResult<Inventory>> {
+  try {
+    const raw = await httpJson<any>(`/inventory/${id}`, { method: 'GET' });
+    return { data: normalizeInventory(raw) };
+  } catch (e: any) { const error: ApiError = e; return { error }; }
+}
+
+export async function createInventory(payload: InventoryCreatePayload): Promise<ApiResult<Inventory>> {
+  try {
+    const raw = await httpJson<any>('/inventory', { method: 'POST', body: JSON.stringify(payload) });
+    return { data: normalizeInventory(raw) };
+  } catch (e: any) { const error: ApiError = e; return { error }; }
+}
+
+export async function updateInventory(id: number, payload: InventoryUpdatePayload): Promise<ApiResult<Inventory>> {
+  try {
+    const raw = await httpJson<any>(`/inventory/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+    return { data: normalizeInventory(raw) };
+  } catch (e: any) { const error: ApiError = e; return { error }; }
+}
+
+export async function deleteInventory(id: number): Promise<ApiResult<true>> {
+  try {
+    await httpJson<any>(`/inventory/${id}`, { method: 'DELETE' });
+    return { data: true };
+  } catch (e: any) { const error: ApiError = e; return { error }; }
 }

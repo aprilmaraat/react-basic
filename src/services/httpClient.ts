@@ -10,7 +10,7 @@ import { ApiError } from '../types/User';
 const DEFAULT_TIMEOUT_MS = 10000; // 10s
 const MAX_RETRIES = 2;
 
-const baseUrl = (process.env.REACT_APP_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
+const baseUrl = (process.env.REACT_APP_API_BASE_URL || 'http://127.0.0.1:8000/').replace(/\/$/, '');
 
 export interface RequestOptions extends RequestInit {
   timeoutMs?: number;

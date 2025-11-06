@@ -1,21 +1,35 @@
-export interface Item {
-  id: number | string;
-  /**
-   * Human readable label for the item (previously called `name`).
-   * Backend now returns `title`; mapping layer will still hydrate from legacy `name` if present.
-   */
-  title: string;
-  description?: string;
-  amount: number;
-  createdAt?: string;
-  /** Owning user id (foreign key) */
-  userId?: number | string;
-  /** Denormalized owner display name coming directly from the items endpoint (preferred) */
-  ownerName?: string;
-  /** Logical classification for the item (e.g., expense, income, etc.) */
-  type?: string;
-  [key: string]: unknown;
+// Inventory models aligned with OpenAPI InventoryRead / InventoryReadSimple / InventoryCreate / InventoryUpdate
+// Fields: id, name, quantity, category_id, weight_id
+
+export interface Inventory {
+  id: number;
+  name: string;
+  quantity: number;
+  category_id: number;
+  weight_id: number;
+  // Enriched fields for UI mapping (resolved client-side from lookups)
+  categoryName?: string;
+  weightName?: string;
 }
 
-// Re-export shared API result types from User definitions to keep things DRY
+export interface InventorySimple {
+  id: number;
+  name: string;
+  quantity: number;
+}
+
+export interface InventoryCreatePayload {
+  name: string;
+  quantity: number;
+  category_id: number;
+  weight_id: number;
+}
+
+export interface InventoryUpdatePayload {
+  name?: string | null;
+  quantity?: number | null;
+  category_id?: number | null;
+  weight_id?: number | null;
+}
+
 export type { ApiResult, ApiError } from './User';

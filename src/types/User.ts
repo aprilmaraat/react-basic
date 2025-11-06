@@ -1,11 +1,9 @@
 export interface User {
-  id: number | string;
-  name: string;
-  email?: string;
-  username?: string;
-  createdAt?: string;
-  // Allow additional dynamic fields without losing type safety for known keys
-  [key: string]: unknown;
+  id: number;
+  email: string;
+  full_name?: string | null;
+  is_active: boolean;
+  transactions?: import('./Transaction').Transaction[]; // present in detailed UserRead
 }
 
 export interface ApiError extends Error {

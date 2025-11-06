@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Card, DatePicker, Select, Space, Typography, Alert, Spin, Statistic, Row, Col, Tag } from 'antd';
-import type { Item } from '../types/Item';
+import { Card, DatePicker, Select, Space, Typography, Alert, Spin, Statistic, Row, Col, Tag, Segmented } from 'antd';
+import type { Transaction } from '../types/Transaction';
 import type { User } from '../types/User';
-import { getItems } from '../services/itemService';
+import { searchTransactions } from '../services/transactionService';
 import { getUsers } from '../services/userService';
 import dayjs, { Dayjs } from 'dayjs';
 
@@ -33,131 +33,284 @@ const DynamicColumn: React.FC<ColumnChartProps> = (props) => {
 
 interface AggregatedPoint { day: string; total: number; }
 
+type ViewMode = 'monthly' | 'daily';
+
 const { Title } = Typography;
 
 const GraphPage: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
-  const [items, setItems] = useState<Item[] | null>(null);
+  const [transactions, setTransactions] = useState<Transaction[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // View mode: monthly or daily
+  const [viewMode, setViewMode] = useState<ViewMode>('monthly');
+
   // Filters
-  const [userId, setUserId] = useState<string | number | null>(null);
-  const [month, setMonth] = useState<Dayjs>(dayjs()); // default current month
-  const [itemType, setItemType] = useState<string>('expense'); // default to expense per requirements
+  const [ownerId, setOwnerId] = useState<number | null>(null);
+  // Track if we've already applied the initial auto-select to avoid re-applying after manual clear.
+  const [autoSelectedUser, setAutoSelectedUser] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Dayjs>(dayjs()); // For daily view - single date
+  const [month, setMonth] = useState<Dayjs>(dayjs()); // For monthly view - month
+  // Multi-select transaction types. We'll auto-select ALL once the types are known.
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+  const [autoSelectedTypes, setAutoSelectedTypes] = useState(false);
 
   const loadUsers = useCallback(async () => {
     const { data } = await getUsers();
     if (data) setUsers(data);
   }, []);
 
-  const loadItems = useCallback(async () => {
+  const loadTransactions = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await getItems({ userId: userId ?? undefined });
-    if (error) setError(error.message); else { setItems(data || []); setError(null); }
+    const { data, error } = await searchTransactions({ owner_id: ownerId ?? null });
+    if (error) setError(error.message); else { setTransactions(data || []); setError(null); }
     setLoading(false);
-  }, [userId]);
+  }, [ownerId]);
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
-  useEffect(() => { loadItems(); }, [loadItems, month]); // reload when month changes (could add server-side month filter later)
+  // After users load, default the user filter to the first user (once).
+  useEffect(() => {
+    if (!autoSelectedUser && !ownerId && users.length > 0) {
+      setOwnerId(users[0].id);
+      setAutoSelectedUser(true);
+    }
+  }, [users, ownerId, autoSelectedUser]);
+  useEffect(() => { loadTransactions(); }, [loadTransactions, month, selectedDate]); // reload when date changes
 
-  // Derive available item types from loaded items
-  const itemTypes = useMemo(() => {
-    if (!items) return [];
+  // Derive available transaction types from loaded transactions
+  const transactionTypes = useMemo(() => {
+    if (!transactions) return [];
     const set = new Set<string>();
-    items.forEach(i => { if (i.type) set.add(i.type); });
+    transactions.forEach(i => { if (i.transaction_type) set.add(i.transaction_type); });
     return Array.from(set.values()).sort();
-  }, [items]);
+  }, [transactions]);
 
-  // Filter + aggregate for chart
-  const { monthTotal, chartData } = useMemo(() => {
-    if (!items) return { monthTotal: 0, chartData: [] as AggregatedPoint[] };
-    const start = month.startOf('month');
-    const end = month.endOf('month');
-    const bucket = new Map<string, number>();
-    let total = 0;
-    items.forEach(it => {
-      if (!it.createdAt) return;
-      const d = dayjs(it.createdAt);
+  // Auto-select all types once discovered (only once, unless user clears all manually).
+  useEffect(() => {
+    if (!autoSelectedTypes && transactionTypes.length > 0 && selectedTypes.length === 0) {
+      setSelectedTypes(transactionTypes);
+      setAutoSelectedTypes(true);
+    }
+  }, [transactionTypes, autoSelectedTypes, selectedTypes]);
+
+  // Aggregate for Expense, Revenue, and Treasury - works for both monthly and daily views
+  const { expenseTotal, revenueTotal, treasuryTotal, netRevenueTotal, chartData, periodLabel } = useMemo(() => {
+    if (!transactions) return { expenseTotal: 0, revenueTotal: 0, treasuryTotal: 0, netRevenueTotal: 0, chartData: [] as any[], periodLabel: '' };
+    
+    let start: Dayjs;
+    let end: Dayjs;
+    let periodLabel: string;
+    let xFieldLabel: string;
+
+    if (viewMode === 'monthly') {
+      start = month.startOf('month');
+      end = month.endOf('month');
+      periodLabel = month.format('MMMM YYYY');
+      xFieldLabel = 'day';
+    } else {
+      // Daily view - show transactions for a single day
+      start = selectedDate.startOf('day');
+      end = selectedDate.endOf('day');
+      periodLabel = selectedDate.format('MMMM DD, YYYY');
+      xFieldLabel = 'time';
+    }
+
+    const allSelected = selectedTypes.length === 0 || selectedTypes.length === transactionTypes.length;
+    const activeSet = allSelected ? null : new Set(selectedTypes);
+  let expenseTotal = 0;
+  let revenueTotal = 0;
+  let capitalTotal = 0;
+    // Map: day -> Map(type -> total)
+    const bucket = new Map<string, Map<string, number>>();
+    transactions.forEach(it => {
+      if (!it.date) return;
+      const d = dayjs(it.date);
       if (!d.isValid()) return;
       if (d.isBefore(start) || d.isAfter(end)) return;
-      if (itemType && it.type && it.type !== itemType) return; // type filter
-      const key = d.format('YYYY-MM-DD');
-      const amount = typeof it.amount === 'number' ? it.amount : Number(it.amount) || 0;
-      total += amount;
-      bucket.set(key, (bucket.get(key) || 0) + amount);
-    });
-    const data: AggregatedPoint[] = Array.from(bucket.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([day, total]) => ({ day, total }));
-    return { monthTotal: total, chartData: data };
-  }, [items, month, itemType]);
+      const typeKey = it.transaction_type || 'unknown';
+      if (activeSet && (!it.transaction_type || !activeSet.has(it.transaction_type))) return;
+      
+      // For monthly view: group by day, for daily view: group by hour
+      const key = viewMode === 'monthly' 
+        ? d.format('YYYY-MM-DD')
+        : d.format('HH:00'); // Group by hour for daily view
 
-  const monthLabel = month.format('MMMM YYYY');
+      // Handle both string and number types for total_amount
+      const totalAmountNum = typeof it.total_amount === 'string' ? parseFloat(it.total_amount) : it.total_amount;
+      const amountPerUnitNum = typeof it.amount_per_unit === 'string' ? parseFloat(it.amount_per_unit) : it.amount_per_unit;
+      const amount = !isNaN(totalAmountNum) && totalAmountNum !== 0
+        ? totalAmountNum
+        : (!isNaN(amountPerUnitNum) && typeof it.quantity === 'number'
+          ? amountPerUnitNum * it.quantity
+          : 0);
+      if (typeKey.toLowerCase() === 'expense') expenseTotal += amount;
+      if (typeKey.toLowerCase() === 'earning') revenueTotal += amount;
+      if (typeKey.toLowerCase() === 'capital') capitalTotal += amount;
+      if (!bucket.has(key)) bucket.set(key, new Map<string, number>());
+      const keyMap = bucket.get(key)!;
+      keyMap.set(typeKey, (keyMap.get(typeKey) || 0) + amount);
+    });
+  const treasuryTotal = capitalTotal - expenseTotal + revenueTotal;
+  const netRevenueTotal = revenueTotal - expenseTotal;
+    const data: any[] = Array.from(bucket.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .flatMap(([key, typeMap]) => Array.from(typeMap.entries()).map(([type, total]) => ({ 
+        [xFieldLabel]: key, 
+        type, 
+        total 
+      })));
+    return { expenseTotal, revenueTotal, treasuryTotal, netRevenueTotal, chartData: data, periodLabel };
+  }, [transactions, month, selectedDate, viewMode, selectedTypes, transactionTypes]);
 
   return (
     <div>
       <Space direction="vertical" style={{ width: '100%' }} size="large">
-        <Title level={3} style={{ margin: 0 }}>Expense Analytics</Title>
+  <Title level={3} style={{ margin: 0 }}>Transaction Graph</Title>
         <Card size="small">
           <Space wrap>
+            <Segmented
+              options={[
+                { label: 'Monthly', value: 'monthly' },
+                { label: 'Daily', value: 'daily' }
+              ]}
+              value={viewMode}
+              onChange={(value) => setViewMode(value as ViewMode)}
+            />
             <Select
               allowClear
               placeholder="User"
               style={{ width: 200 }}
-              value={userId !== null ? userId : undefined}
-              onChange={(v) => setUserId(v ?? null)}
+              value={ownerId !== null ? ownerId : undefined}
+              onChange={(v) => setOwnerId(v ?? null)}
               loading={!users.length}
               showSearch
               optionFilterProp="children"
             >
-              {users.map(u => <Select.Option key={u.id} value={u.id}>{u.username || u.name || <Tag>Unnamed</Tag>}</Select.Option>)}
+              {users.map(u => <Select.Option key={u.id} value={u.id}>{u.full_name || u.email || <Tag>Unnamed</Tag>}</Select.Option>)}
             </Select>
             <Select
-              placeholder="Item Type"
+              placeholder="Transaction Types"
               allowClear
-              style={{ width: 160 }}
-              value={itemType || undefined}
-              onChange={(v) => setItemType(v || '')}
+              mode="multiple"
+              style={{ minWidth: 220 }}
+              value={selectedTypes}
+              onChange={(vals) => setSelectedTypes(vals)}
+              maxTagCount="responsive"
             >
-              {itemTypes.map(t => <Select.Option key={t} value={t}>{t}</Select.Option>)}
+              {transactionTypes.map(t => <Select.Option key={t} value={t}>{t}</Select.Option>)}
             </Select>
-            <DatePicker
-              picker="month"
-              value={month}
-              onChange={(d) => d && setMonth(d)}
-              allowClear={false}
-            />
+            {viewMode === 'monthly' ? (
+              <DatePicker
+                picker="month"
+                value={month}
+                onChange={(d) => d && setMonth(d)}
+                allowClear={false}
+                placeholder="Select month"
+              />
+            ) : (
+              <DatePicker
+                value={selectedDate}
+                onChange={(d) => d && setSelectedDate(d)}
+                allowClear={false}
+                placeholder="Select date"
+              />
+            )}
           </Space>
         </Card>
-        {error && <Alert type="error" showIcon message="Failed to load items" description={error} />}
-        {loading && !items && <Spin tip="Loading items..." />}
-        {items && (
+  {error && <Alert type="error" showIcon message="Failed to load transactions" description={error} />}
+  {loading && !transactions && <Spin tip="Loading transactions..." />}
+  {transactions && transactions.length === 0 && !loading && !error && (
+    <Alert type="info" message="No data" description="No transactions found for the current filters / period." />
+  )}
+  {transactions && transactions.length > 0 && (
           <>
             <Row gutter={16}>
               <Col xs={24} sm={12} md={8} lg={6}>
                 <Card size="small">
-                  <Statistic
-                    title={`Total ${itemType || 'All'} Amount (${monthLabel})`}
-                    value={monthTotal}
-                    precision={2}
-                  />
+                    <Statistic
+                      title={`Total Expense Amount (${periodLabel})`}
+                      value={expenseTotal}
+                      precision={2}
+                      valueStyle={{ color: '#cf1322' }}
+                    />
+                </Card>
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={6}>
+                <Card size="small">
+                    <Statistic
+                      title={`Total Revenue Amount (${periodLabel})`}
+                      value={revenueTotal}
+                      precision={2}
+                      valueStyle={{ color: '#389e0d' }}
+                    />
+                </Card>
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={6}>
+                <Card size="small">
+                    <Statistic
+                      title={`Total Business Treasury (${periodLabel})`}
+                      value={treasuryTotal}
+                      precision={2}
+                      valueStyle={{ color: '#1890ff' }}
+                    />
+                </Card>
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={6}>
+                <Card size="small">
+                    <Statistic
+                      title={`Total Net Revenue (${periodLabel})`}
+                      value={netRevenueTotal}
+                      precision={2}
+                      valueStyle={{ color: netRevenueTotal <= 0 ? '#cf1322' : '#52c41a' }}
+                    />
                 </Card>
               </Col>
             </Row>
-            <Card size="small" title={`${itemType || 'All'} daily totals (${monthLabel})`} bodyStyle={{ height: 420 }}>
+            <Card size="small" title={`${selectedTypes.length === 0 || selectedTypes.length === transactionTypes.length ? 'All' : selectedTypes.join(', ')} ${viewMode === 'monthly' ? 'daily' : 'hourly'} totals (${periodLabel})`} bodyStyle={{ height: 420 }}>
               {chartData.length === 0 ? (
-                <Alert type="info" message="No data" description="No items match the current filters." />
+                <Alert type="info" message="No data" description="No transactions match the current filters." />
               ) : (
                 <DynamicColumn
                   data={chartData}
-                  xField="day"
+                  xField={viewMode === 'monthly' ? 'day' : 'time'}
                   yField="total"
+                  seriesField="type"
                   columnWidthRatio={0.6}
-                  tooltip={{ formatter: (datum: any) => ({ name: 'Total', value: datum.total.toFixed(2) }) }}
+                    // Robust color mapping with partial matching (in case backend sends plural or capitalized variants)
+                    color={(datum: any) => {
+                      const t = (datum.type || '').toString().toLowerCase();
+                      if (t.includes('expense')) return '#ffccc7'; // light red
+                      if (t.includes('earning')) return '#d9f7be'; // light green
+                      if (t.includes('capital')) return '#1890ff'; // blue
+                      return '#d9d9d9'; // neutral fallback
+                    }}
+                  tooltip={{
+                    customContent: (title: string, items: any[]) => {
+                      // items: array of { data, value, ... }
+                      let expense = 0;
+                      let earning = 0;
+                      items.forEach((item: any) => {
+                        console.log('item', item);
+                        const type = item.data?.type?.toLowerCase();
+                        if (type === 'expense') expense = item.data?.total;
+                        if (type === 'earning') earning = item.data?.total;
+                      });
+                      return `<div style='padding:8px;'>`
+                        + `<strong>${title}</strong><br/>`
+                        + `Expense: <b>${expense.toFixed(2)}</b><br/>`
+                        + `Earning: <b>${earning.toFixed(2)}</b><br/>`
+                        + items.map(item => `${item.name}: ${item.value}`).join('<br/>')
+                        + `</div>`;
+                    }
+                  }}
                   xAxis={{ label: { autoRotate: true } }}
                   yAxis={{ label: { formatter: (v: any) => `${v}` } }}
-                  meta={{ day: { alias: 'Day' }, total: { alias: 'Amount' } }}
+                  isGroup
+                  meta={viewMode === 'monthly' 
+                    ? { day: { alias: 'Day' }, total: { alias: 'Amount' }, type: { alias: 'Type' } }
+                    : { time: { alias: 'Hour' }, total: { alias: 'Amount' }, type: { alias: 'Type' } }
+                  }
                 />
               )}
             </Card>
