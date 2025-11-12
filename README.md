@@ -19,6 +19,18 @@ npm start
 
 Runs at http://localhost:3000.
 
+## 🚀 Deployment
+
+**For production deployment and running the app as an always-on service, see [DEPLOYMENT.md](./DEPLOYMENT.md)**
+
+Quick deploy with PM2:
+```bash
+npm run build
+npm install -g pm2 serve
+pm2 start serve --name "react-basic-app" -- -s build -l 3000
+pm2 save && pm2-startup install
+```
+
 ## Environment (.env)
 
 ```
