@@ -91,9 +91,12 @@ const InventoryGraph: React.FC<Props> = ({ refreshIntervalMs }) => {
     const categoryName = categories.find(c => c.id === item.category_id)?.name || item.categoryName || 'Unknown';
     const weightName = weights.find(w => w.id === item.weight_id)?.name || item.weightName || 'Unknown';
     
+    // Parse quantity to number for chart
+    const qtyNum = typeof item.quantity === 'string' ? parseFloat(item.quantity) : (item.quantity || 0);
+    
     return {
       name: item.name,
-      quantity: item.quantity || 0,
+      quantity: isNaN(qtyNum) ? 0 : qtyNum,
       category: categoryName,
       weight: weightName,
       fullName: item.name,

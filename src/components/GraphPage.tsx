@@ -121,6 +121,7 @@ const GraphPage: React.FC = () => {
   let expenseTotal = 0;
   let revenueTotal = 0;
   let capitalTotal = 0;
+  let netRevenueTotal = 0;
     // Map: day -> Map(type -> total)
     const bucket = new Map<string, Map<string, number>>();
     transactions.forEach(it => {
@@ -136,23 +137,36 @@ const GraphPage: React.FC = () => {
         ? d.format('YYYY-MM-DD')
         : d.format('HH:00'); // Group by hour for daily view
 
-      // Handle both string and number types for total_amount
+      // Handle both string and number types for total_amount and quantity
       const totalAmountNum = typeof it.total_amount === 'string' ? parseFloat(it.total_amount) : it.total_amount;
       const amountPerUnitNum = typeof it.amount_per_unit === 'string' ? parseFloat(it.amount_per_unit) : it.amount_per_unit;
+      const quantityNum = typeof it.quantity === 'string' ? parseFloat(it.quantity) : (it.quantity || 0);
       const amount = !isNaN(totalAmountNum) && totalAmountNum !== 0
         ? totalAmountNum
-        : (!isNaN(amountPerUnitNum) && typeof it.quantity === 'number'
-          ? amountPerUnitNum * it.quantity
+        : (!isNaN(amountPerUnitNum) && !isNaN(quantityNum)
+          ? amountPerUnitNum * quantityNum
           : 0);
       if (typeKey.toLowerCase() === 'expense') expenseTotal += amount;
       if (typeKey.toLowerCase() === 'earning') revenueTotal += amount;
       if (typeKey.toLowerCase() === 'capital') capitalTotal += amount;
+      
+      // Calculate Net Revenue per Transaction: Only for 'earning' type transactions
+      // Formula: (amount_per_unit * quantity) - (purchase_price * quantity)
+      if (typeKey.toLowerCase() === 'earning') {
+        const purchasePriceNum = it.purchase_price 
+          ? (typeof it.purchase_price === 'string' ? parseFloat(it.purchase_price) : it.purchase_price)
+          : 0;
+        const revenue = amountPerUnitNum * quantityNum;
+        const cost = (isNaN(purchasePriceNum) ? 0 : purchasePriceNum) * quantityNum;
+        const netRevenuePerTransaction = revenue - cost;
+        netRevenueTotal += netRevenuePerTransaction;
+      }
+      
       if (!bucket.has(key)) bucket.set(key, new Map<string, number>());
       const keyMap = bucket.get(key)!;
       keyMap.set(typeKey, (keyMap.get(typeKey) || 0) + amount);
     });
   const treasuryTotal = capitalTotal - expenseTotal + revenueTotal;
-  const netRevenueTotal = revenueTotal - expenseTotal;
     const data: any[] = Array.from(bucket.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
       .flatMap(([key, typeMap]) => Array.from(typeMap.entries()).map(([type, total]) => ({ 

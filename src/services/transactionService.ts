@@ -37,6 +37,15 @@ function buildSearchQuery(params: SearchTransactionsParams): string {
   return '/transactions/search' + (qs ? `?${qs}` : '');
 }
 
+/**
+ * Helper to parse quantity value (handles both string and number)
+ */
+function parseQuantity(value: number | string | null | undefined): number {
+  if (value == null) return 0;
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  return isNaN(num) ? 0 : num;
+}
+
 function normalizeTransaction(raw: any): Transaction {
   return {
     id: raw.id,
@@ -45,7 +54,7 @@ function normalizeTransaction(raw: any): Transaction {
     owner_id: raw.owner_id,
     transaction_type: raw.transaction_type,
     amount_per_unit: typeof raw.amount_per_unit === 'string' ? raw.amount_per_unit : String(raw.amount_per_unit ?? '0.00'),
-    quantity: raw.quantity ?? 1,
+    quantity: typeof raw.quantity === 'string' ? raw.quantity : (raw.quantity ?? 1),
     total_amount: typeof raw.total_amount === 'string' ? raw.total_amount : String(raw.total_amount ?? '0.00'),
     date: raw.date,
     inventory_id: raw.inventory_id ?? null,
@@ -64,10 +73,16 @@ function normalizeTransaction(raw: any): Transaction {
 async function updateInventoryQuantity(
   inventoryId: number,
   transactionType: TransactionType,
-  quantity: number
+  quantity: number | string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    console.log(`[updateInventoryQuantity] Starting: inventoryId=${inventoryId}, type=${transactionType}, qty=${quantity}`);
+    // Parse quantity to number (handles both string and number inputs)
+    const qtyNum = typeof quantity === 'string' ? parseFloat(quantity) : quantity;
+    if (isNaN(qtyNum)) {
+      return { success: false, error: 'Invalid quantity value' };
+    }
+    
+    console.log(`[updateInventoryQuantity] Starting: inventoryId=${inventoryId}, type=${transactionType}, qty=${qtyNum}`);
     
     // Fetch current inventory
     const { data: inventory, error: fetchError } = await getInventoryById(inventoryId);
@@ -76,22 +91,24 @@ async function updateInventoryQuantity(
       return { success: false, error: fetchError?.message || 'Inventory not found' };
     }
 
-    console.log(`[updateInventoryQuantity] Current inventory quantity: ${inventory.quantity}`);
+    // Parse current inventory quantity
+    const currentQty = typeof inventory.quantity === 'string' ? parseFloat(inventory.quantity) : inventory.quantity;
+    console.log(`[updateInventoryQuantity] Current inventory quantity: ${currentQty}`);
 
     // Calculate new quantity based on transaction type
-    let newQuantity = inventory.quantity;
+    let newQuantity = currentQty;
     if (transactionType === 'expense') {
       // Purchase from supplier - add to inventory
-      newQuantity += quantity;
-      console.log(`[updateInventoryQuantity] Expense: Adding ${quantity}, new quantity: ${newQuantity}`);
+      newQuantity += qtyNum;
+      console.log(`[updateInventoryQuantity] Expense: Adding ${qtyNum}, new quantity: ${newQuantity}`);
     } else if (transactionType === 'earning') {
       // Customer purchase - subtract from inventory
-      newQuantity -= quantity;
-      console.log(`[updateInventoryQuantity] Earning: Subtracting ${quantity}, new quantity: ${newQuantity}`);
+      newQuantity -= qtyNum;
+      console.log(`[updateInventoryQuantity] Earning: Subtracting ${qtyNum}, new quantity: ${newQuantity}`);
       // Validate sufficient inventory
       if (newQuantity < 0) {
-        console.error(`[updateInventoryQuantity] Insufficient inventory: available=${inventory.quantity}, requested=${quantity}`);
-        return { success: false, error: `Insufficient inventory. Available: ${inventory.quantity}, Requested: ${quantity}` };
+        console.error(`[updateInventoryQuantity] Insufficient inventory: available=${currentQty}, requested=${qtyNum}`);
+        return { success: false, error: `Insufficient inventory. Available: ${currentQty}, Requested: ${qtyNum}` };
       }
     } else {
       console.log(`[updateInventoryQuantity] Capital transaction - no inventory change`);
@@ -99,7 +116,7 @@ async function updateInventoryQuantity(
     // capital type doesn't affect inventory
 
     // Update inventory if quantity changed - prefill all data and update quantity
-    if (newQuantity !== inventory.quantity) {
+    if (newQuantity !== currentQty) {
       console.log(`[updateInventoryQuantity] Updating inventory with all fields, new quantity: ${newQuantity}`);
       const { error: updateError } = await updateInventory(inventoryId, {
         name: inventory.name,
@@ -153,7 +170,8 @@ export async function createTransaction(payload: TransactionCreatePayload): Prom
     console.log('[createTransaction] Payload:', JSON.stringify(payload, null, 2));
     
     // Validate inventory BEFORE creating transaction (for earning transactions)
-    if (payload.inventory_id != null && payload.quantity != null && payload.quantity > 0) {
+    const qtyNum = parseQuantity(payload.quantity);
+    if (payload.inventory_id != null && qtyNum > 0) {
       const transactionType = payload.transaction_type || 'expense';
       
       // For earning transactions, check if there's sufficient inventory
@@ -167,12 +185,13 @@ export async function createTransaction(payload: TransactionCreatePayload): Prom
           return { error };
         }
         
-        if (inventory.quantity < payload.quantity) {
+        const invQty = parseQuantity(inventory.quantity);
+        if (invQty < qtyNum) {
           const error: ApiError = Object.assign(
-            new Error(`Insufficient inventory. Available: ${inventory.quantity}, Requested: ${payload.quantity}`),
+            new Error(`Insufficient inventory. Available: ${invQty}, Requested: ${qtyNum}`),
             {
               status: 400,
-              message: `Insufficient inventory. Available: ${inventory.quantity}, Requested: ${payload.quantity}`
+              message: `Insufficient inventory. Available: ${invQty}, Requested: ${qtyNum}`
             }
           );
           return { error };
@@ -187,13 +206,13 @@ export async function createTransaction(payload: TransactionCreatePayload): Prom
     console.log('[createTransaction] Transaction created successfully');
     
     // Update inventory AFTER transaction is created successfully
-    if (payload.inventory_id != null && payload.quantity != null && payload.quantity > 0) {
+    if (payload.inventory_id != null && qtyNum > 0) {
       console.log('[createTransaction] Inventory update needed - calling updateInventoryQuantity');
       const transactionType = payload.transaction_type || 'expense';
       const inventoryUpdate = await updateInventoryQuantity(
         payload.inventory_id,
         transactionType,
-        payload.quantity
+        payload.quantity!
       );
       if (!inventoryUpdate.success) {
         console.warn('[createTransaction] Inventory update failed:', inventoryUpdate.error);
@@ -207,7 +226,7 @@ export async function createTransaction(payload: TransactionCreatePayload): Prom
         has_inventory_id: payload.inventory_id != null,
         quantity: payload.quantity,
         has_quantity: payload.quantity != null,
-        quantity_gt_zero: payload.quantity != null && payload.quantity > 0
+        quantity_gt_zero: qtyNum > 0
       }, null, 2));
     }
     
@@ -232,7 +251,8 @@ export async function updateTransaction(id: number, payload: TransactionUpdatePa
     }
 
     // Reverse the old inventory change if it had inventory_id and quantity > 0
-    if (existingTransaction.inventory_id != null && existingTransaction.quantity > 0) {
+    const existingQty = parseQuantity(existingTransaction.quantity);
+    if (existingTransaction.inventory_id != null && existingQty > 0) {
       const reverseType = existingTransaction.transaction_type === 'expense' ? 'earning' : 
                          existingTransaction.transaction_type === 'earning' ? 'expense' : 
                          'capital';
@@ -250,15 +270,16 @@ export async function updateTransaction(id: number, payload: TransactionUpdatePa
       ? payload.transaction_type 
       : existingTransaction.transaction_type;
 
-    if (newInventoryId != null && newQuantity != null && newQuantity > 0) {
+    const newQtyNum = parseQuantity(newQuantity);
+    if (newInventoryId != null && newQtyNum > 0) {
       const inventoryUpdate = await updateInventoryQuantity(
         newInventoryId,
         newType,
-        newQuantity
+        newQuantity!
       );
       if (!inventoryUpdate.success) {
         // Revert the reversal if new update fails
-        if (existingTransaction.inventory_id != null && existingTransaction.quantity > 0) {
+        if (existingTransaction.inventory_id != null && existingQty > 0) {
           await updateInventoryQuantity(
             existingTransaction.inventory_id,
             existingTransaction.transaction_type,
@@ -292,7 +313,8 @@ export async function deleteTransaction(id: number): Promise<ApiResult<true>> {
     }
 
     // Reverse the inventory change if it had inventory_id and quantity > 0
-    if (existingTransaction.inventory_id != null && existingTransaction.quantity > 0) {
+    const existingQty = parseQuantity(existingTransaction.quantity);
+    if (existingTransaction.inventory_id != null && existingQty > 0) {
       const reverseType = existingTransaction.transaction_type === 'expense' ? 'earning' : 
                          existingTransaction.transaction_type === 'earning' ? 'expense' : 
                          'capital';

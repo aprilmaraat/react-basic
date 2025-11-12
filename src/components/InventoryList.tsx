@@ -17,7 +17,7 @@ interface EditableItem {
   name: string;
   category_id?: number;
   weight_id?: number;
-  quantity?: number;
+  quantity?: number | string;
 }
 
 const InventoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
@@ -81,13 +81,15 @@ const InventoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
   };
 
   const validateData = (data: EditableItem): boolean => {
+    if (!data.quantity) return false;
+    const qtyNum = typeof data.quantity === 'string' ? parseFloat(data.quantity) : data.quantity;
     return !!(
       data.name &&
       data.name.trim().length > 0 &&
       data.category_id != null &&
       data.weight_id != null &&
-      data.quantity != null &&
-      data.quantity >= 0
+      !isNaN(qtyNum) &&
+      qtyNum >= 0
     );
   };
 
@@ -98,9 +100,13 @@ const InventoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
     }
 
     try {
+      const qtyValue = typeof editingData.quantity === 'string' 
+        ? parseFloat(editingData.quantity) 
+        : editingData.quantity!;
+        
       const payload = {
         name: editingData.name.trim(),
-        quantity: Number(editingData.quantity),
+        quantity: qtyValue,
         category_id: editingData.category_id!,
         weight_id: editingData.weight_id!,
       };
@@ -239,15 +245,22 @@ const InventoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
               value={editingData?.quantity}
               onChange={val => updateEditingData('quantity', val)}
               min={0}
-              step={1}
+              step={0.01}
+              precision={2}
               style={{ width: '100%' }}
-              placeholder="0"
+              placeholder="0.00"
             />
           );
         }
-        return typeof v === 'number' ? v : '-';
+        // Display as number with proper formatting
+        const qtyNum = typeof v === 'string' ? parseFloat(v) : v;
+        return !isNaN(qtyNum) ? qtyNum.toFixed(2) : '-';
       },
-      sorter: (a, b) => (a.quantity || 0) - (b.quantity || 0),
+      sorter: (a, b) => {
+        const aQty = typeof a.quantity === 'string' ? parseFloat(a.quantity) : (a.quantity || 0);
+        const bQty = typeof b.quantity === 'string' ? parseFloat(b.quantity) : (b.quantity || 0);
+        return aQty - bQty;
+      },
     },
     {
       title: 'Actions',

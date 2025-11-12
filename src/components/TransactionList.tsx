@@ -19,7 +19,7 @@ interface EditableTransaction {
   owner_id?: number;
   transaction_type: 'expense' | 'earning' | 'capital';
   amount_per_unit?: number;
-  quantity?: number;
+  quantity?: number | string;
   date?: string;
   inventory_id?: number;
   description?: string;
@@ -128,6 +128,7 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
   };
 
   const validateData = (data: EditableTransaction): boolean => {
+    const qtyNum = typeof data.quantity === 'string' ? parseFloat(data.quantity) : data.quantity;
     return !!(
       data.title &&
       data.title.trim().length > 0 &&
@@ -136,7 +137,8 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
       data.amount_per_unit != null &&
       data.amount_per_unit >= 0 &&
       data.quantity != null &&
-      data.quantity >= 0 &&
+      !isNaN(qtyNum!) &&
+      qtyNum! >= 0 &&
       data.date
     );
   };
@@ -148,12 +150,16 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
     }
 
     try {
+      const qtyValue = typeof editingData.quantity === 'string' 
+        ? parseFloat(editingData.quantity) 
+        : editingData.quantity!;
+        
       const payload: any = {
         title: editingData.title.trim(),
         owner_id: editingData.owner_id!,
         transaction_type: editingData.transaction_type,
         amount_per_unit: Number(editingData.amount_per_unit),
-        quantity: Number(editingData.quantity),
+        quantity: qtyValue,
         date: editingData.date,
         description: editingData.description || null,
         purchase_price: editingData.purchase_price != null ? Number(editingData.purchase_price) : null,
@@ -328,16 +334,21 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
               value={editingData?.quantity}
               onChange={val => updateEditingData('quantity', val)}
               min={0}
-              step={1}
+              step={0.01}
+              precision={2}
               style={{ width: '100%' }}
-              placeholder="0"
+              placeholder="0.00"
             />
           );
         }
-        const val = record.quantity;
-        return val != null && !isNaN(Number(val)) ? Number(val) : '-';
+        const qtyNum = typeof record.quantity === 'string' ? parseFloat(record.quantity) : record.quantity;
+        return !isNaN(qtyNum) ? qtyNum.toFixed(2) : '-';
       },
-      sorter: (a, b) => (a.quantity || 0) - (b.quantity || 0),
+      sorter: (a, b) => {
+        const aQty = typeof a.quantity === 'string' ? parseFloat(a.quantity) : (a.quantity || 0);
+        const bQty = typeof b.quantity === 'string' ? parseFloat(b.quantity) : (b.quantity || 0);
+        return aQty - bQty;
+      },
     },
     {
       title: 'Total',
@@ -347,7 +358,10 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
       width: 120,
       render: (_: any, record: Transaction) => {
         if (isEditing(record)) {
-          const total = (editingData?.amount_per_unit || 0) * (editingData?.quantity || 0);
+          const qtyNum = typeof editingData?.quantity === 'string' 
+            ? parseFloat(editingData.quantity) 
+            : (editingData?.quantity || 0);
+          const total = (editingData?.amount_per_unit || 0) * qtyNum;
           return total.toFixed(2);
         }
         const val = typeof record.total_amount === 'string' ? parseFloat(record.total_amount) : record.total_amount;
