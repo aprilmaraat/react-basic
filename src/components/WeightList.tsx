@@ -113,7 +113,12 @@ const WeightList: React.FC<Props> = ({ refreshIntervalMs }) => {
         columns={columns}
         dataSource={filteredWeights}
         loading={loading}
-        pagination={{ pageSize: 10, showSizeChanger: true }}
+        pagination={{ 
+          pageSize: 10, 
+          showSizeChanger: true, 
+          pageSizeOptions: ['10', '20', '50', '100'],
+          showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} items`
+        }}
         locale={{ emptyText: loading ? 'Loading...' : 'No weights found' }}
       />
       <Modal title={editing ? 'Edit Weight' : 'Create Weight'} open={modalOpen} onOk={handleModalOk} onCancel={handleModalCancel} okText={editing ? 'Save' : 'Create'} destroyOnClose>

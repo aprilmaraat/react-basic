@@ -506,7 +506,12 @@ const InventoryList: React.FC<Props> = ({ refreshIntervalMs, onInventoryChange }
         columns={columns}
         dataSource={dataSource}
         loading={loading}
-        pagination={{ pageSize: 10, showSizeChanger: true }}
+        pagination={{ 
+          pageSize: 10, 
+          showSizeChanger: true, 
+          pageSizeOptions: ['10', '20', '50', '100'],
+          showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} items`
+        }}
         locale={{ emptyText: loading ? 'Loading...' : 'No inventory found' }}
       />
     </div>

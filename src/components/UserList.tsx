@@ -201,7 +201,12 @@ const UserList: React.FC<Props> = ({ refreshIntervalMs }) => {
         columns={columns}
         dataSource={filteredUsers}
         loading={loading}
-        pagination={{ pageSize: 10, showSizeChanger: true }}
+        pagination={{ 
+          pageSize: 10, 
+          showSizeChanger: true, 
+          pageSizeOptions: ['10', '20', '50', '100'],
+          showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} items`
+        }}
         locale={{ emptyText: loading ? 'Loading...' : 'No users found' }}
       />
       <Modal
