@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { getUsers, createUser, updateUser, deleteUser } from '../services/userService';
 import { User } from '../types/User';
 import { Table, Typography, Alert, Spin, Space, Button, Modal, Form, Input, Popconfirm, message, Tag } from 'antd';
@@ -13,6 +13,14 @@ const UserList: React.FC<Props> = ({ refreshIntervalMs }) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [form] = Form.useForm();
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  // Debounce search input
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search.trim()), 400);
+    return () => clearTimeout(id);
+  }, [search]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -134,6 +142,18 @@ const UserList: React.FC<Props> = ({ refreshIntervalMs }) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshIntervalMs, load]);
 
+  const filteredUsers = useMemo(() => {
+    if (!users) return [];
+    if (!debouncedSearch) return users;
+    
+    const searchLower = debouncedSearch.toLowerCase();
+    return users.filter(user => {
+      const nameMatch = user.full_name?.toLowerCase().includes(searchLower);
+      const emailMatch = user.email?.toLowerCase().includes(searchLower);
+      return nameMatch || emailMatch;
+    });
+  }, [users, debouncedSearch]);
+
   if (!users && loading) {
     return (
       <Space direction="vertical" style={{ width: '100%' }}>
@@ -147,6 +167,15 @@ const UserList: React.FC<Props> = ({ refreshIntervalMs }) => {
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }}>
         <Typography.Title level={3} style={{ margin: 0 }}>Users</Typography.Title>
         <Space>
+          <Input.Search
+            placeholder="Search users..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ width: 220 }}
+            allowClear
+            enterButton
+            onSearch={() => setDebouncedSearch(search.trim())}
+          />
           <Button onClick={() => load()} disabled={loading} loading={loading}>Refresh</Button>
           <Button type="primary" onClick={onCreate}>New User</Button>
         </Space>
@@ -170,7 +199,7 @@ const UserList: React.FC<Props> = ({ refreshIntervalMs }) => {
         bordered
         rowKey={record => record.id.toString()}
         columns={columns}
-        dataSource={users || []}
+        dataSource={filteredUsers}
         loading={loading}
         pagination={{ pageSize: 10, showSizeChanger: true }}
         locale={{ emptyText: loading ? 'Loading...' : 'No users found' }}

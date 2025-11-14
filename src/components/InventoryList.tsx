@@ -1,16 +1,19 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { Table, Typography, Alert, Spin, Space, Button, Select, Input, InputNumber, Tag, message, Popconfirm } from 'antd';
+import { Table, Typography, Alert, Spin, Space, Button, Select, Input, InputNumber, Tag, message, Popconfirm, Tooltip } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { getInventory, createInventory, updateInventory, deleteInventory } from '../services/itemService';
 import { Inventory } from '../types/Item';
 import { getCategories } from '../services/categoryService';
 import { getWeights } from '../services/weightService';
-import { CloseOutlined, SaveOutlined } from '@ant-design/icons';
+import { CloseOutlined, SaveOutlined, ExclamationCircleOutlined, WarningOutlined } from '@ant-design/icons';
 
 const { Title } = Typography;
 const { Option } = Select;
 
-interface Props { refreshIntervalMs?: number; }
+interface Props { 
+  refreshIntervalMs?: number;
+  onInventoryChange?: () => void;
+}
 
 interface EditableItem {
   id?: number;
@@ -20,7 +23,7 @@ interface EditableItem {
   quantity?: number | string;
 }
 
-const InventoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
+const InventoryList: React.FC<Props> = ({ refreshIntervalMs, onInventoryChange }) => {
   const [items, setItems] = useState<Inventory[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +36,8 @@ const InventoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
   const [editingKey, setEditingKey] = useState<string>('');
   const [editingData, setEditingData] = useState<EditableItem | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [lowStockThreshold, setLowStockThreshold] = useState<number>(3);
+  const [showThresholdInput, setShowThresholdInput] = useState(false);
 
   // Debounce search input
   useEffect(() => {
@@ -46,7 +51,12 @@ const InventoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
     const { data, error } = await getInventory({});
     if (error) setError(error.message); else { setItems(data || []); setError(null); }
     setLoading(false);
-  }, []); // no external dependencies
+    
+    // Notify parent component about inventory change
+    if (onInventoryChange) {
+      onInventoryChange();
+    }
+  }, [onInventoryChange]); // no external dependencies
 
   useEffect(() => { loadItems(); }, [loadItems]);
   useEffect(() => {
@@ -56,10 +66,10 @@ const InventoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
     }
   }, [refreshIntervalMs, loadItems]);
 
-  const isEditing = (record: Inventory | EditableItem) => {
+  const isEditing = useCallback((record: Inventory | EditableItem) => {
     const key = record.id ? record.id.toString() : 'new';
     return editingKey === key;
-  };
+  }, [editingKey]);
 
   const startEdit = (record: Inventory) => {
     setEditingKey(record.id.toString());
@@ -72,13 +82,13 @@ const InventoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
     });
   };
 
-  const cancelEdit = () => {
+  const cancelEdit = useCallback(() => {
     setEditingKey('');
     setEditingData(null);
     if (isAdding) {
       setIsAdding(false);
     }
-  };
+  }, [isAdding]);
 
   const validateData = (data: EditableItem): boolean => {
     if (!data.quantity) return false;
@@ -93,7 +103,7 @@ const InventoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
     );
   };
 
-  const saveEdit = async () => {
+  const saveEdit = useCallback(async () => {
     if (!editingData || !validateData(editingData)) {
       message.error('Please fill all required fields correctly');
       return;
@@ -136,11 +146,25 @@ const InventoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
     } catch (e: any) {
       message.error('Operation failed');
     }
-  };
+  }, [editingData, loadItems]);
 
   const updateEditingData = (field: keyof EditableItem, value: any) => {
     setEditingData(prev => prev ? { ...prev, [field]: value } : null);
   };
+
+  // Check if item is low stock
+  const isLowStock = useCallback((quantity: number | string | undefined): boolean => {
+    if (quantity === undefined || quantity === null) return false;
+    const qtyNum = typeof quantity === 'string' ? parseFloat(quantity) : quantity;
+    return !isNaN(qtyNum) && qtyNum <= lowStockThreshold;
+  }, [lowStockThreshold]);
+
+  // Check if item is out of stock
+  const isOutOfStock = useCallback((quantity: number | string | undefined): boolean => {
+    if (quantity === undefined || quantity === null) return true;
+    const qtyNum = typeof quantity === 'string' ? parseFloat(quantity) : quantity;
+    return !isNaN(qtyNum) && qtyNum === 0;
+  }, []);
 
   // Edit handler (stable)
   const onEdit = useCallback((it: Inventory) => {
@@ -175,7 +199,25 @@ const InventoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
             />
           );
         }
-        return value || '-';
+        const lowStock = isLowStock(record.quantity);
+        const outOfStock = isOutOfStock(record.quantity);
+        const textColor = outOfStock ? '#ff4d4f' : lowStock ? '#faad14' : undefined;
+        const icon = outOfStock ? (
+          <Tooltip title="Out of stock">
+            <ExclamationCircleOutlined style={{ color: '#ff4d4f', marginRight: 6 }} />
+          </Tooltip>
+        ) : lowStock ? (
+          <Tooltip title={`Low stock (≤${lowStockThreshold})`}>
+            <WarningOutlined style={{ color: '#faad14', marginRight: 6 }} />
+          </Tooltip>
+        ) : null;
+        
+        return (
+          <span style={{ color: textColor, fontWeight: lowStock ? 600 : 'normal' }}>
+            {icon}
+            {value || '-'}
+          </span>
+        );
       },
     },
     {
@@ -254,7 +296,15 @@ const InventoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
         }
         // Display as number with proper formatting
         const qtyNum = typeof v === 'string' ? parseFloat(v) : v;
-        return !isNaN(qtyNum) ? qtyNum.toFixed(2) : '-';
+        const lowStock = isLowStock(v);
+        const outOfStock = isOutOfStock(v);
+        const textColor = outOfStock ? '#ff4d4f' : lowStock ? '#faad14' : undefined;
+        
+        return (
+          <span style={{ color: textColor, fontWeight: lowStock ? 600 : 'normal' }}>
+            {!isNaN(qtyNum) ? qtyNum.toFixed(2) : '-'}
+          </span>
+        );
       },
       sorter: (a, b) => {
         const aQty = typeof a.quantity === 'string' ? parseFloat(a.quantity) : (a.quantity || 0);
@@ -307,7 +357,7 @@ const InventoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
         );
       }
     }
-  ], [categories, weights, editingKey, editingData, isEditing, cancelEdit, saveEdit, onEdit, onDelete]);
+  ], [categories, weights, editingKey, editingData, isEditing, cancelEdit, saveEdit, onEdit, onDelete, lowStockThreshold, isLowStock, isOutOfStock]);
 
   // Load categories & weights (ensure objects with id & name). If service returns array of objects it's fine; if strings, map to objects with generated id = index.
   const loadMeta = useCallback(async () => {
@@ -405,6 +455,41 @@ const InventoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
           <Button type="primary" onClick={onCreate} disabled={editingKey !== ''}>New Item</Button>
         </Space>
       </Space>
+      
+      <Space style={{ marginBottom: 12, width: '100%', justifyContent: 'space-between' }} wrap>
+        <Space>
+          <Tooltip title="Set the quantity threshold for low stock warning">
+            <Button 
+              size="small" 
+              icon={<WarningOutlined />}
+              onClick={() => setShowThresholdInput(!showThresholdInput)}
+            >
+              Low Stock Alert: {lowStockThreshold}
+            </Button>
+          </Tooltip>
+          {showThresholdInput && (
+            <InputNumber
+              size="small"
+              min={0}
+              max={100}
+              value={lowStockThreshold}
+              onChange={(val) => setLowStockThreshold(val ?? 3)}
+              style={{ width: 100 }}
+              addonAfter={
+                <CloseOutlined 
+                  onClick={() => setShowThresholdInput(false)} 
+                  style={{ cursor: 'pointer' }} 
+                />
+              }
+            />
+          )}
+        </Space>
+        <Space size="small">
+          <Tag icon={<ExclamationCircleOutlined />} color="error">Out of Stock (0)</Tag>
+          <Tag icon={<WarningOutlined />} color="warning">Low Stock (≤{lowStockThreshold})</Tag>
+        </Space>
+      </Space>
+
       {error && (
         <Alert
           type="error"

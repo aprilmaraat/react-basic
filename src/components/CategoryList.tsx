@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import { Table, Typography, Alert, Spin, Space, Button, Modal, Form, Input, Popconfirm, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { getCategories, createCategory, updateCategory, deleteCategory } from '../services/categoryService';
@@ -15,6 +15,14 @@ const CategoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Category | null>(null);
   const [form] = Form.useForm();
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  // Debounce search input
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search.trim()), 400);
+    return () => clearTimeout(id);
+  }, [search]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -73,6 +81,18 @@ const CategoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
 
   const handleModalCancel = () => setModalOpen(false);
 
+  const filteredCategories = useMemo(() => {
+    if (!categories) return [];
+    if (!debouncedSearch) return categories;
+    
+    const searchLower = debouncedSearch.toLowerCase();
+    return categories.filter(cat => {
+      const nameMatch = cat.name?.toLowerCase().includes(searchLower);
+      const descMatch = cat.description?.toLowerCase().includes(searchLower);
+      return nameMatch || descMatch;
+    });
+  }, [categories, debouncedSearch]);
+
   if (!categories && loading) return <Spin tip="Loading categories..." />;
 
   return (
@@ -80,6 +100,15 @@ const CategoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }}>
         <Title level={3} style={{ margin: 0 }}>Categories</Title>
         <Space>
+          <Input.Search
+            placeholder="Search categories..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ width: 220 }}
+            allowClear
+            enterButton
+            onSearch={() => setDebouncedSearch(search.trim())}
+          />
           <Button onClick={() => load()} disabled={loading} loading={loading}>Refresh</Button>
           <Button type="primary" onClick={onCreate}>New Category</Button>
         </Space>
@@ -90,7 +119,7 @@ const CategoryList: React.FC<Props> = ({ refreshIntervalMs }) => {
         bordered
         rowKey={r => r.id.toString()}
         columns={columns}
-        dataSource={categories || []}
+        dataSource={filteredCategories}
         loading={loading}
         pagination={{ pageSize: 10, showSizeChanger: true }}
         locale={{ emptyText: loading ? 'Loading...' : 'No categories found' }}

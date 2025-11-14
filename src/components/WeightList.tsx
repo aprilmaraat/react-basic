@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import { Table, Typography, Alert, Spin, Space, Button, Modal, Form, Input, Popconfirm, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { getWeights, createWeight, updateWeight, deleteWeight } from '../services/weightService';
@@ -15,6 +15,14 @@ const WeightList: React.FC<Props> = ({ refreshIntervalMs }) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Weight | null>(null);
   const [form] = Form.useForm();
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  // Debounce search input
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search.trim()), 400);
+    return () => clearTimeout(id);
+  }, [search]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -65,6 +73,18 @@ const WeightList: React.FC<Props> = ({ refreshIntervalMs }) => {
 
   const handleModalCancel = () => setModalOpen(false);
 
+  const filteredWeights = useMemo(() => {
+    if (!weights) return [];
+    if (!debouncedSearch) return weights;
+    
+    const searchLower = debouncedSearch.toLowerCase();
+    return weights.filter(weight => {
+      const nameMatch = weight.name?.toLowerCase().includes(searchLower);
+      const descMatch = weight.description?.toLowerCase().includes(searchLower);
+      return nameMatch || descMatch;
+    });
+  }, [weights, debouncedSearch]);
+
   if (!weights && loading) return <Spin tip="Loading weights..." />;
 
   return (
@@ -72,6 +92,15 @@ const WeightList: React.FC<Props> = ({ refreshIntervalMs }) => {
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }}>
         <Title level={3} style={{ margin: 0 }}>Weights</Title>
         <Space>
+          <Input.Search
+            placeholder="Search weights..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ width: 220 }}
+            allowClear
+            enterButton
+            onSearch={() => setDebouncedSearch(search.trim())}
+          />
           <Button onClick={() => load()} disabled={loading} loading={loading}>Refresh</Button>
           <Button type="primary" onClick={onCreate}>New Weight</Button>
         </Space>
@@ -82,7 +111,7 @@ const WeightList: React.FC<Props> = ({ refreshIntervalMs }) => {
         bordered
         rowKey={r => r.id.toString()}
         columns={columns}
-        dataSource={weights || []}
+        dataSource={filteredWeights}
         loading={loading}
         pagination={{ pageSize: 10, showSizeChanger: true }}
         locale={{ emptyText: loading ? 'Loading...' : 'No weights found' }}

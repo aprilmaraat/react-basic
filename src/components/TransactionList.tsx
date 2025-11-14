@@ -105,6 +105,14 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
 
   const startEdit = (record: Transaction) => {
     setEditingKey(record.id.toString());
+    // Convert ISO datetime to datetime-local format (YYYY-MM-DDTHH:MM)
+    let dateValue = record.date;
+    if (dateValue) {
+      const d = new Date(dateValue);
+      if (!isNaN(d.getTime())) {
+        dateValue = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      }
+    }
     setEditingData({
       id: record.id,
       title: record.title,
@@ -112,7 +120,7 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
       transaction_type: record.transaction_type,
       amount_per_unit: typeof record.amount_per_unit === 'string' ? parseFloat(record.amount_per_unit) : record.amount_per_unit,
       quantity: record.quantity,
-      date: record.date,
+      date: dateValue,
       inventory_id: record.inventory_id ?? undefined,
       description: record.description ?? undefined,
       purchase_price: record.purchase_price ? (typeof record.purchase_price === 'string' ? parseFloat(record.purchase_price) : record.purchase_price) : undefined,
@@ -153,6 +161,16 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
       const qtyValue = typeof editingData.quantity === 'string' 
         ? parseFloat(editingData.quantity) 
         : editingData.quantity!;
+      
+      // Convert datetime-local format to ISO 8601
+      let dateValue = editingData.date;
+      if (dateValue) {
+        // datetime-local gives us "YYYY-MM-DDTHH:MM", convert to ISO 8601
+        const d = new Date(dateValue);
+        if (!isNaN(d.getTime())) {
+          dateValue = d.toISOString();
+        }
+      }
         
       const payload: any = {
         title: editingData.title.trim(),
@@ -160,7 +178,7 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
         transaction_type: editingData.transaction_type,
         amount_per_unit: Number(editingData.amount_per_unit),
         quantity: qtyValue,
-        date: editingData.date,
+        date: dateValue,
         description: editingData.description || null,
         purchase_price: editingData.purchase_price != null ? Number(editingData.purchase_price) : null,
       };
@@ -452,12 +470,12 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
       title: 'Date',
       dataIndex: 'date',
       key: 'date',
-      width: 150,
+      width: 180,
       render: (value: any, record: Transaction) => {
         if (isEditing(record)) {
           return (
             <Input
-              type="date"
+              type="datetime-local"
               value={editingData?.date || ''}
               onChange={e => updateEditingData('date', e.target.value)}
               style={{ width: '100%' }}
@@ -467,7 +485,11 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
         if (!value) return '-';
         const d = new Date(value);
         if (isNaN(d.getTime())) return '-';
-        return <span title={d.toLocaleString()}>{d.toLocaleDateString()}</span>;
+        return (
+          <span title={d.toLocaleString()}>
+            {d.toLocaleDateString()} {d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        );
       },
       sorter: (a, b) => {
         const at = a.date ? new Date(a.date).getTime() : 0;
@@ -530,14 +552,15 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
     }
     setIsAdding(true);
     setEditingKey('new');
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const localDatetime = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     setEditingData({
       title: '',
       owner_id: undefined,
       transaction_type: 'expense',
       amount_per_unit: undefined,
       quantity: 1,
-      date: today,
+      date: localDatetime,
       inventory_id: undefined,
       description: '',
       purchase_price: undefined,

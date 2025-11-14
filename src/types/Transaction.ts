@@ -14,7 +14,7 @@ export interface Transaction {
   amount_per_unit: string; // decimal as string (e.g., "10.50")
   quantity: number | string;        // decimal - accepts both number and string
   total_amount: string;    // decimal as string (amount_per_unit * quantity on server)
-  date: string;            // YYYY-MM-DD
+  date: string;            // ISO 8601 datetime string (e.g., "2024-01-15T14:30:00")
   inventory_id?: number | null;
   purchase_price?: string | null; // decimal as string (e.g., "10.50")
   // Client enrichment
@@ -29,7 +29,7 @@ export interface TransactionCreatePayload {
   transaction_type?: TransactionType; // default expense
   amount_per_unit?: number | string; // accepts number or string, default "0.00"
   quantity?: number | string;        // decimal - accepts both number and string, default 1
-  date: string;             // required by spec
+  date: string;             // ISO 8601 datetime string (required)
   inventory_id?: number | null;
   purchase_price?: number | string | null; // accepts number or string
 }
@@ -40,7 +40,7 @@ export interface TransactionUpdatePayload {
   transaction_type?: TransactionType | null;
   amount_per_unit?: number | string | null; // accepts number or string
   quantity?: number | string | null;  // decimal - accepts both number and string
-  date?: string | null;
+  date?: string | null;      // ISO 8601 datetime string
   inventory_id?: number | null;
   purchase_price?: number | string | null; // accepts number or string
 }
