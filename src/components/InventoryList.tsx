@@ -38,6 +38,7 @@ const InventoryList: React.FC<Props> = ({ refreshIntervalMs, onInventoryChange }
   const [isAdding, setIsAdding] = useState(false);
   const [lowStockThreshold, setLowStockThreshold] = useState<number>(3);
   const [showThresholdInput, setShowThresholdInput] = useState(false);
+  const [pageSize, setPageSize] = useState(10);
 
   // Debounce search input
   useEffect(() => {
@@ -507,10 +508,11 @@ const InventoryList: React.FC<Props> = ({ refreshIntervalMs, onInventoryChange }
         dataSource={dataSource}
         loading={loading}
         pagination={{ 
-          pageSize: 10, 
+          pageSize: pageSize,
           showSizeChanger: true, 
           pageSizeOptions: ['10', '20', '50', '100'],
-          showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} items`
+          showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} items`,
+          onShowSizeChange: (current, size) => setPageSize(size)
         }}
         locale={{ emptyText: loading ? 'Loading...' : 'No inventory found' }}
       />

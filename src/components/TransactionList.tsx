@@ -40,6 +40,7 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
   const [editingKey, setEditingKey] = useState<string>('');
   const [editingData, setEditingData] = useState<EditableTransaction | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [pageSize, setPageSize] = useState(10);
 
   // Debounce search input
   useEffect(() => {
@@ -654,10 +655,11 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
         dataSource={dataSource}
         loading={loading}
         pagination={{ 
-          pageSize: 10, 
+          pageSize: pageSize,
           showSizeChanger: true, 
           pageSizeOptions: ['10', '20', '50', '100'],
-          showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} items`
+          showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} items`,
+          onShowSizeChange: (current, size) => setPageSize(size)
         }}
         locale={{ emptyText: loading ? 'Loading...' : 'No transactions found' }}
       />

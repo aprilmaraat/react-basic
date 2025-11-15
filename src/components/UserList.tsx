@@ -15,6 +15,7 @@ const UserList: React.FC<Props> = ({ refreshIntervalMs }) => {
   const [form] = Form.useForm();
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [pageSize, setPageSize] = useState(10);
 
   // Debounce search input
   useEffect(() => {
@@ -202,10 +203,11 @@ const UserList: React.FC<Props> = ({ refreshIntervalMs }) => {
         dataSource={filteredUsers}
         loading={loading}
         pagination={{ 
-          pageSize: 10, 
+          pageSize: pageSize,
           showSizeChanger: true, 
           pageSizeOptions: ['10', '20', '50', '100'],
-          showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} items`
+          showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} items`,
+          onShowSizeChange: (current, size) => setPageSize(size)
         }}
         locale={{ emptyText: loading ? 'Loading...' : 'No users found' }}
       />
