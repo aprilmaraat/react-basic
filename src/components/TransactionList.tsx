@@ -67,19 +67,27 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
 
   const loadTransactions = useCallback(async () => {
     setLoading(true);
-    // Use search endpoint when filters or search applied; else list
+    console.log('[TransactionList] Loading transactions with filters:', {
+      userFilter,
+      debouncedSearch,
+      typeFilter,
+      inventoryFilter
+    });
+    // Use search endpoint when filters or search applied (except inventoryFilter - not supported by API)
     let resp;
-    if (userFilter != null || debouncedSearch || typeFilter || inventoryFilter != null) {
+    if (userFilter != null || debouncedSearch || typeFilter) {
+      console.log('[TransactionList] Using search endpoint');
       resp = await searchTransactions({
         owner_id: userFilter ?? null,
         q: debouncedSearch || null,
         transaction_type: typeFilter as any || null,
-        inventory_id: inventoryFilter ?? null,
       });
     } else {
+      console.log('[TransactionList] Using list endpoint');
       resp = await getTransactions({});
     }
     const { data, error } = resp;
+    console.log('[TransactionList] Response:', { dataCount: data?.length, error: error?.message });
     if (error) {
       setError(error.message);
     } else {
@@ -87,17 +95,25 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
       setError(null);
     }
     setLoading(false);
-  }, [userFilter, debouncedSearch, typeFilter, inventoryFilter]);
+  }, [userFilter, debouncedSearch, typeFilter]);
 
   // Initial loads & interval
   useEffect(() => { loadUsers(); loadMeta(); }, [loadUsers, loadMeta]);
-  useEffect(() => { loadTransactions(); }, [loadTransactions]);
+  
+  // Load transactions when filters change
+  useEffect(() => { 
+    loadTransactions(); 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userFilter, debouncedSearch, typeFilter]);
+  
+  // Refresh interval
   useEffect(() => {
     if (refreshIntervalMs) {
-      const id = setInterval(loadTransactions, refreshIntervalMs);
+      const id = setInterval(() => loadTransactions(), refreshIntervalMs);
       return () => clearInterval(id);
     }
-  }, [refreshIntervalMs, loadTransactions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshIntervalMs, userFilter, debouncedSearch, typeFilter]);
 
   const isEditing = (record: Transaction | EditableTransaction) => {
     const key = record.id ? record.id.toString() : 'new';
@@ -106,12 +122,21 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
 
   const startEdit = (record: Transaction) => {
     setEditingKey(record.id.toString());
-    // Convert ISO datetime to datetime-local format (YYYY-MM-DDTHH:MM)
+    // Convert ISO datetime to datetime-local format (YYYY-MM-DDTHH:MM) in local time
     let dateValue = record.date;
+    console.log('[TransactionList] Original date from server:', dateValue);
     if (dateValue) {
       const d = new Date(dateValue);
+      console.log('[TransactionList] Parsed Date object for editing:', d.toString());
       if (!isNaN(d.getTime())) {
-        dateValue = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        // Format as YYYY-MM-DDTHH:MM in local time
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const hours = String(d.getHours()).padStart(2, '0');
+        const minutes = String(d.getMinutes()).padStart(2, '0');
+        dateValue = `${year}-${month}-${day}T${hours}:${minutes}`;
+        console.log('[TransactionList] Formatted for datetime-local input (local time):', dateValue);
       }
     }
     setEditingData({
@@ -164,12 +189,16 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
         : editingData.quantity!;
       
       // Convert datetime-local format to ISO 8601
+      // datetime-local gives us "YYYY-MM-DDTHH:MM" in local time
+      // Convert to ISO 8601 (UTC) for storage
       let dateValue = editingData.date;
       if (dateValue) {
-        // datetime-local gives us "YYYY-MM-DDTHH:MM", convert to ISO 8601
+        console.log('[TransactionList] Input datetime-local value (local time):', dateValue);
         const d = new Date(dateValue);
+        console.log('[TransactionList] Parsed Date object:', d.toString());
         if (!isNaN(d.getTime())) {
           dateValue = d.toISOString();
+          console.log('[TransactionList] ISO 8601:', dateValue);
         }
       }
         
@@ -486,6 +515,7 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
         if (!value) return '-';
         const d = new Date(value);
         if (isNaN(d.getTime())) return '-';
+        // Display in local time
         return (
           <span title={d.toLocaleString()}>
             {d.toLocaleDateString()} {d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -554,7 +584,16 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
     setIsAdding(true);
     setEditingKey('new');
     const now = new Date();
-    const localDatetime = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    console.log('[onCreate] Current time:', now.toString());
+    // Format current local time as YYYY-MM-DDTHH:MM
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const localDatetime = `${year}-${month}-${day}T${hours}:${minutes}`;
+    console.log('[onCreate] Formatted local datetime:', localDatetime);
+    console.log('[onCreate] Breakdown - Year:', year, 'Month:', month, 'Day:', day, 'Hours:', hours, 'Minutes:', minutes);
     setEditingData({
       title: '',
       owner_id: undefined,
@@ -582,7 +621,15 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
     }
   };
 
-  const filteredTransactions = transactions || [];
+  // Apply client-side inventory filter (API doesn't support inventory_id parameter)
+  const filteredTransactions = useMemo(() => {
+    const baseData = transactions || [];
+    if (inventoryFilter == null) {
+      return baseData;
+    }
+    console.log('[TransactionList] Applying client-side inventory filter:', inventoryFilter);
+    return baseData.filter(t => t.inventory_id === inventoryFilter);
+  }, [transactions, inventoryFilter]);
 
   // Prepare data source with new row if adding
   const dataSource = useMemo(() => {
@@ -623,15 +670,44 @@ const TransactionList: React.FC<Props> = ({ refreshIntervalMs }) => {
             enterButton
             onSearch={() => setDebouncedSearch(search.trim())}
           />
-          <Select allowClear placeholder="Filter by user" value={userFilter ?? undefined} style={{ width: 180 }} onChange={v => setUserFilter(v ?? null)} showSearch>
+          <Select 
+            allowClear 
+            placeholder="Filter by user" 
+            value={userFilter ?? undefined} 
+            style={{ width: 180 }} 
+            onChange={v => {
+              console.log('[TransactionList] User filter changed:', v);
+              setUserFilter(v ?? null);
+            }} 
+            showSearch
+          >
             {users.map(u => <Option key={u.id} value={u.id}>{u.full_name || u.email}</Option>)}
           </Select>
-          <Select allowClear placeholder="Type" value={typeFilter || undefined} style={{ width: 160 }} onChange={v => setTypeFilter(v || null)}>
+          <Select 
+            allowClear 
+            placeholder="Type" 
+            value={typeFilter ?? undefined} 
+            style={{ width: 160 }} 
+            onChange={v => {
+              console.log('[TransactionList] Type filter changed:', v);
+              setTypeFilter(v ?? null);
+            }}
+          >
             <Option value="expense">Expense</Option>
             <Option value="earning">Earning</Option>
             <Option value="capital">Capital</Option>
           </Select>
-          <Select allowClear placeholder="Inventory" value={inventoryFilter ?? undefined} style={{ width: 180 }} onChange={v => setInventoryFilter(v ?? null)} showSearch>
+          <Select 
+            allowClear 
+            placeholder="Inventory" 
+            value={inventoryFilter ?? undefined} 
+            style={{ width: 180 }} 
+            onChange={v => {
+              console.log('[TransactionList] Inventory filter changed:', v);
+              setInventoryFilter(v ?? null);
+            }} 
+            showSearch
+          >
             {inventory.map(i => <Option key={i.id} value={i.id}>{i.name}</Option>)}
           </Select>
           <Button onClick={() => loadTransactions()} disabled={loading || editingKey !== ''} loading={loading}>Refresh</Button>
